@@ -17,19 +17,21 @@ export async function returnSiteTitles() {
     'https://www.neowin.net/'
   ]
 
-  const titles = []
+  const titles = await Promise.all(
+    urls.map(async url => {
+      const response = await fetch(url, { method: 'GET' })
 
-  for (const url of urls) {
-    const response = await fetch(url, { method: 'GET' })
-
-    if (response.status === 200) {
-      const data = await response.text()
-      const match = data.match(/<title>(.*?)<\/title>/)
-      if (match?.length) {
-        titles.push(match[1])
+      if (response.status === 200) {
+        const data = await response.text()
+        const match = data.match(/<title>(.*?)<\/title>/)
+        if (match?.length) {
+          return match[1]
+        }
       }
-    }
-  }
+
+      return null
+    })
+  )
 
   return titles
 }
@@ -46,21 +48,28 @@ export async function returnSiteTitles() {
 export function findTagCounts(localData: Array<SampleDateRecord>): Array<TagCounts> {
   const tagCounts: Array<TagCounts> = []
 
-  for (let i = 0; i < localData.length; i++) {
-    const tags = localData[i].tags
+  localData
+    .reduce((map, item) => {
+      item.tags.forEach(tag => map.set(tag, (map.get(tag) || 0) + 1))
+      return map
+    }, new Map<string, number>())
+    .forEach((count, tag) => tagCounts.push({ tag, count }))
 
-    for (let j = 0; j < tags.length; j++) {
-      const tag = tags[j]
+  // for (let i = 0; i < localData.length; i++) {
+  //   const tags = localData[i].tags
 
-      for (let k = 0; k < tagCounts.length; k++) {
-        if (tagCounts[k].tag === tag) {
-          tagCounts[k].count++
-        } else {
-          tagCounts.push({ tag, count: 1 })
-        }
-      }
-    }
-  }
+  //   for (let j = 0; j < tags.length; j++) {
+  //     const tag = tags[j]
+
+  //     for (let k = 0; k < tagCounts.length; k++) {
+  //       if (tagCounts[k].tag === tag) {
+  //         tagCounts[k].count++
+  //       } else {
+  //         tagCounts.push({ tag, count: 1 })
+  //       }
+  //     }
+  //   }
+  // }
 
   return tagCounts
 }
@@ -80,4 +89,37 @@ export function findTagCounts(localData: Array<SampleDateRecord>): Array<TagCoun
 export function calcualteImportCost(importedItems: Array<ImportedItem>): Array<ImportCostOutput> {
   // please write your code in here.
   // note that `taxRate` has already been imported for you
+  const result = new Array<ImportCostOutput>()
+  const importTaxRatesMap = getTaxRateMap(taxRates)
+
+  importedItems.forEach(importedItem => {
+    const importTaxRateObject = importTaxRatesMap.get(importedItem.countryDestination)
+    const importTaxRate = importTaxRateObject ? getImportTaxRate(importedItem, importTaxRateObject) : 0
+    const importCost = importedItem.unitPrice * importedItem.quantity * importTaxRate
+    const totalCost = importCost + importedItem.unitPrice * importedItem.quantity
+    const importCostOutput = createImportCostOutput(importedItem.name, 0, importCost, totalCost)
+    result.push(importCostOutput)
+  })
+
+  return result
+}
+
+export function createImportCostOutput(
+  name: string,
+  subtotal: number,
+  importCost: number,
+  totalCost: number
+): ImportCostOutput {
+  return { name, subtotal, importCost, totalCost }
+}
+
+function getTaxRateMap(importTaxRates: Array<ImportTaxRate>): Map<string, ImportTaxRate> {
+  return importTaxRates.reduce((map, item) => {
+    map.set(item.country, item)
+    return map
+  }, new Map<string, ImportTaxRate>())
+}
+
+function getImportTaxRate(importedItem: ImportedItem, importTaxRate: ImportTaxRate): number {
+  return importTaxRate.categoryExceptions.some(item => item === importedItem.category) ? 0 : importTaxRate.importTaxRate
 }
